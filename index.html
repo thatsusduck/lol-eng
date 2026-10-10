@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forest Horror - The Red-Eyed Bear</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #1a1a1a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: #fff;
+        }
+
+        #gameContainer {
+            width: 1000px;
+            height: 600px;
+            border: 3px solid #8B0000;
+            background-color: #0a3d0a;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(139, 0, 0, 0.5);
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #uiOverlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #00ff00;
+            font-size: 18px;
+            z-index: 10;
+            text-shadow: 0 0 10px #00ff00;
+        }
+
+        .stat {
+            margin: 5px 0;
+        }
+
+        #levelIndicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 20px;
+            color: #8B0000;
+            text-shadow: 0 0 10px #8B0000;
+        }
+
+        #gameOver, #levelComplete, #startScreen {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            text-align: center;
+        }
+
+        #gameOver h1, #levelComplete h1, #startScreen h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            color: #8B0000;
+        }
+
+        #gameOver p, #levelComplete p, #startScreen p {
+            font-size: 24px;
+            margin: 10px 0;
+        }
+
+        #gameOver button, #levelComplete button, #startScreen button {
+            margin-top: 20px;
+            padding: 15px 40px;
+            font-size: 20px;
+            background-color: #8B0000;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+
+        #gameOver button:hover, #levelComplete button:hover, #startScreen button:hover {
+            background-color: #ff0000;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div id="uiOverlay">
+            <div class="stat">Keys: <span id="keyCount">0</span>/3</div>
+            <div class="stat">Health: <span id="health">100</span>%</div>
+            <div class="stat">Distance: <span id="distance">0</span>m</div>
+        </div>
+
+        <div id="levelIndicator">Level <span id="currentLevel">1</span>/3</div>
+
+        <div id="startScreen">
+            <h1>🐻 FOREST HORROR 🐻</h1>
+            <p>A bear with glowing red eyes haunts the forest...</p>
+            <p>Find 3 keys to escape!</p>
+            <p>⚠️ The bear grows larger with each level...</p>
+            <p>Use ARROW KEYS or WASD to move</p>
+            <p>Avoid the bear at all costs!</p>
+            <button onclick="startGame()">START GAME</button>
+        </div>
+
+        <div id="gameOver" class="hidden">
+            <h1>💀 GAME OVER 💀</h1>
+            <p id="gameOverMessage"></p>
+            <button onclick="location.reload()">RESTART</button>
+        </div>
+
+        <div id="levelComplete" class="hidden">
+            <h1>✨ LEVEL COMPLETE! ✨</h1>
+            <p id="levelCompleteMessage"></p>
+            <button onclick="nextLevel()">CONTINUE</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 1000;
+        canvas.height = 600;
+
+        // Game variables
+        let gameState = 'start';
+        let currentLevel = 1;
+        let keysCollected = 0;
+        let health = 100;
+        let score = 0;
+
+        // Player
+        const player = {
+            x: 100,
+            y: 300,
+            width: 20,
+            height: 30,
+            speed: 4,
+            velocityX: 0,
+            velocityY: 0
+        };
+
+        // Bear
+        const bear = {
+            x: 800,
+            y: 300,
+            width: 60,
+            height: 60,
+            speed: 1,
+            baseSize: 60
+        };
+
+        // Keys
+        let keys = [];
+        let keysOnLevel = 3;
+
+        // Keyboard
+        const keysPressed = {
+            ArrowUp: false,
+            ArrowDown: false,
+            ArrowLeft: false,
+            ArrowRight: false,
+            w: false,
+            a: false,
+            s: false,
+            d: false
+        };
+
+        // Event listeners
+        document.addEventListener('keydown', (e) => {
+            const key = e.key;
+            if (key in keysPressed) {
+                keysPressed[key] = true;
+                e.preventDefault();
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            const key = e.key;
+            if (key in keysPressed) {
+                keysPressed[key] = false;
+                e.preventDefault();
+            }
+        });
+
+        function startGame() {
+            document.getElementById('startScreen').classList.add('hidden');
+            gameState = 'playing';
+            currentLevel = 1;
+            keysCollected = 0;
+            health = 100;
+            player.x = 100;
+            player.y = 300;
+            initializeLevel();
+            gameLoop();
+        }
+
+        function initializeLevel() {
+            keysCollected = 0;
+            keys = [];
+            bear.width = bear.baseSize + (currentLevel - 1) * 30;
+            bear.height = bear.baseSize + (currentLevel - 1) * 30;
+            bear.speed = 0.5 + (currentLevel - 1) * 0.3;
+            player.x = 50;
+            player.y = 300;
+            bear.x = canvas.width - 100;
+            bear.y = 300;
+
+            // Generate random key positions
+            for (let i = 0; i < keysOnLevel; i++) {
+                keys.push({
+                    x: Math.random() * (canvas.width - 100) + 50,
+                    y: Math.random() * (canvas.height - 100) + 50,
+                    width: 20,
+                    height: 20,
+                    collected: false
+                });
+            }
+        }
+
+        function updatePlayer() {
+            player.velocityX = 0;
+            player.velocityY = 0;
+
+            if (keysPressed.ArrowUp || keysPressed.w) player.velocityY = -player.speed;
+            if (keysPressed.ArrowDown || keysPressed.s) player.velocityY = player.speed;
+            if (keysPressed.ArrowLeft || keysPressed.a) player.velocityX = -player.speed;
+            if (keysPressed.ArrowRight || keysPressed.d) player.velocityX = player.speed;
+
+            player.x += player.velocityX;
+            player.y += player.velocityY;
+
+            // Boundary check
+            if (player.x < 0) player.x = 0;
+            if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+            if (player.y < 0) player.y = 0;
+            if (player.y + player.height > canvas.height) player.y = canvas.height - player.height;
+        }
+
+        function updateBear() {
+            // Bear AI - chase player
+            const dx = player.x - bear.x;
+            const dy = player.y - bear.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance > 0) {
+                bear.x += (dx / distance) * bear.speed;
+                bear.y += (dy / distance) * bear.speed;
+            }
+
+            // Boundary check
+            if (bear.x < 0) bear.x = 0;
+            if (bear.x + bear.width > canvas.width) bear.x = canvas.width - bear.width;
+            if (bear.y < 0) bear.y = 0;
+            if (bear.y + bear.height > canvas.height) bear.y = canvas.height - bear.height;
+        }
+
+        function checkCollisions() {
+            // Check key collection
+            keys.forEach((key, index) => {
+                if (!key.collected &&
+                    player.x < key.x + key.width &&
+                    player.x + player.width > key.x &&
+                    player.y < key.y + key.height &&
+                    player.y + player.height > key.y) {
+                    key.collected = true;
+                    keysCollected++;
+                    score += 100;
+                    document.getElementById('keyCount').textContent = keysCollected;
+                }
+            });
+
+            // Check bear collision
+            if (player.x < bear.x + bear.width &&
+                player.x + player.width > bear.x &&
+                player.y < bear.y + bear.height &&
+                player.y + player.height > bear.y) {
+                health -= 2;
+                // Push player away from bear
+                const dx = player.x - bear.x;
+                const dy = player.y - bear.y;
+                const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+                player.x += (dx / distance) * 10;
+                player.y += (dy / distance) * 10;
+                document.getElementById('health').textContent = Math.max(0, health);
+
+                if (health <= 0) {
+                    endGame(false);
+                }
+            }
+
+            // Check exit (door on right side when all keys collected)
+            if (keysCollected === keysOnLevel &&
+                player.x + player.width > canvas.width - 50) {
+                completeLevel();
+            }
+        }
+
+        function drawBackground() {
+            // Forest background
+            ctx.fillStyle = '#0a3d0a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Trees
+            ctx.fillStyle = '#2d5a2d';
+            for (let i = 0; i < 10; i++) {
+                ctx.fillRect(i * 100, 0, 40, 150);
+                ctx.fillRect(i * 100, canvas.height - 100, 40, 100);
+            }
+
+            // Exit door when keys collected
+            if (keysCollected === keysOnLevel) {
+                ctx.fillStyle = '#FFD700';
+                ctx.fillRect(canvas.width - 40, 250, 40, 100);
+                ctx.fillStyle = '#000';
+                ctx.fillRect(canvas.width - 35, 260, 8, 8);
+                ctx.fillRect(canvas.width - 35, 330, 8, 8);
+            }
+        }
+
+        function drawPlayer() {
+            ctx.fillStyle = '#00ff00';
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+        }
+
+        function drawBear() {
+            // Bear body
+            ctx.fillStyle = '#4B3621';
+            ctx.beginPath();
+            ctx.ellipse(bear.x + bear.width / 2, bear.y + bear.height / 2,
+                        bear.width / 2, bear.height / 2, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Eyes - red glowing eyes
+            ctx.fillStyle = '#ff0000';
+            ctx.shadowColor = 'rgba(255, 0, 0, 0.8)';
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            ctx.arc(bear.x + bear.width / 3, bear.y + bear.height / 3, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(bear.x + 2 * bear.width / 3, bear.y + bear.height / 3, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Snout
+            ctx.fillStyle = '#5C4033';
+            ctx.beginPath();
+            ctx.ellipse(bear.x + bear.width / 2, bear.y + 2 * bear.height / 3,
+                        bear.width / 4, bear.height / 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function drawKeys() {
+            keys.forEach((key) => {
+                if (!key.collected) {
+                    ctx.fillStyle = '#FFD700';
+                    ctx.fillRect(key.x, key.y, key.width, key.height);
+                    ctx.fillStyle = '#FFA500';
+                    ctx.fillRect(key.x + 5, key.y + 8, 10, 4);
+                }
+            });
+        }
+
+        function completeLevel() {
+            gameState = 'levelComplete';
+            if (currentLevel === 3) {
+                document.getElementById('levelCompleteMessage').textContent =
+                    `You escaped! Final Score: ${score}`;
+                document.getElementById('levelComplete').classList.remove('hidden');
+                setTimeout(() => {
+                    alert('🎉 YOU WON! 🎉');
+                    location.reload();
+                }, 500);
+            } else {
+                document.getElementById('levelCompleteMessage').textContent =
+                    `Level ${currentLevel} Complete! Score: ${score}`;
+                document.getElementById('levelComplete').classList.remove('hidden');
+            }
+        }
+
+        function endGame(won) {
+            gameState = 'gameOver';
+            document.getElementById('gameOverMessage').textContent =
+                won ? 'You escaped!' : 'The bear caught you! Your journey ends here...';
+            document.getElementById('gameOver').classList.remove('hidden');
+        }
+
+        function nextLevel() {
+            currentLevel++;
+            health = 100;
+            keysCollected = 0;
+            document.getElementById('currentLevel').textContent = currentLevel;
+            document.getElementById('health').textContent = health;
+            document.getElementById('keyCount').textContent = '0';
+            document.getElementById('levelComplete').classList.add('hidden');
+            gameState = 'playing';
+            initializeLevel();
+        }
+
+        function gameLoop() {
+            if (gameState === 'playing') {
+                updatePlayer();
+                updateBear();
+                checkCollisions();
+
+                // Clear and redraw
+                drawBackground();
+                drawKeys();
+                drawPlayer();
+                drawBear();
+
+                // Update distance to exit
+                const distanceToExit = Math.max(0, Math.round(canvas.width - player.x));
+                document.getElementById('distance').textContent = distanceToExit;
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+    </script>
+</body>
+</html>
